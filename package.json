@@ -1,17 +1,13 @@
 {
   "name": "auriq-worker",
   "version": "1.0.0",
-  "description": "Auriq Background TTS Worker",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "axios": "^1.13.5",
+    "express": "^4.18.2",
     "dotenv": "^17.2.4",
-    "express": "^4.18.2"
+    "axios": "^1.13.5"
   }
 }
