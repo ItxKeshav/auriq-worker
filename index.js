@@ -5,7 +5,10 @@ const axios = require("axios")
 const app = express()
 app.use(express.json())
 
-// Root
+// ---------------------------
+// BASIC ROUTES
+// ---------------------------
+
 app.get("/", (req, res) => {
   res.status(200).send("Auriq Worker Running ✅")
 })
@@ -14,10 +17,79 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" })
 })
 
-/*
-  MAIN PROCESS ROUTE
-  This will receive chapter data from Auriq frontend
-*/
+// ---------------------------
+// SAFE SENTENCE CHUNKING
+// ---------------------------
+
+function chunkText(text, maxLength = 300) {
+  const sentences = text.split(/(?<=[.?!।])/g)
+  const chunks = []
+  let current = ""
+
+  for (let sentence of sentences) {
+    if ((current + sentence).length <= maxLength) {
+      current += sentence
+    } else {
+      if (current) chunks.push(current.trim())
+      current = sentence
+    }
+  }
+
+  if (current) chunks.push(current.trim())
+  return chunks
+}
+
+// ---------------------------
+// SARVAM CALL WITH RETRY
+// ---------------------------
+
+async function callSarvamTTS(text, retryCount = 0) {
+  const MAX_RETRIES = 3
+
+  try {
+    const response = await axios.post(
+      "https://api.sarvam.ai/v1/tts", // confirm endpoint from docs
+      {
+        text: text,
+        voice: "shubh", // replace later dynamically
+        format: "mp3"
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${process.env.SARVAM_API_KEY}`
+        },
+        timeout: 20000 // 20 sec timeout
+      }
+    )
+
+    return response.data
+
+  } catch (error) {
+    const status = error.response?.status
+
+    // Handle rate limit
+    if (status === 429 && retryCount < MAX_RETRIES) {
+      console.log("Rate limited. Retrying...")
+      await new Promise(r => setTimeout(r, 2000))
+      return callSarvamTTS(text, retryCount + 1)
+    }
+
+    // Retry other network errors
+    if (retryCount < MAX_RETRIES) {
+      console.log("Retrying chunk...")
+      await new Promise(r => setTimeout(r, 1000))
+      return callSarvamTTS(text, retryCount + 1)
+    }
+
+    throw error
+  }
+}
+
+// ---------------------------
+// MAIN PROCESS ROUTE
+// ---------------------------
+
 app.post("/process-chapter", async (req, res) => {
   try {
     const { chapterId, text } = req.body
@@ -28,21 +100,15 @@ app.post("/process-chapter", async (req, res) => {
 
     console.log("Processing chapter:", chapterId)
 
-    // Basic chunking (safe)
-    const chunkSize = 300
-    const chunks = []
-
-    for (let i = 0; i < text.length; i += chunkSize) {
-      chunks.push(text.substring(i, i + chunkSize))
-    }
+    const chunks = chunkText(text, 300)
 
     console.log(`Total chunks: ${chunks.length}`)
 
     for (let i = 0; i < chunks.length; i++) {
       console.log(`Processing chunk ${i + 1}/${chunks.length}`)
 
-      // Simulated delay (replace later with Sarvam call)
-      await new Promise(resolve => setTimeout(resolve, 500))
+      // REAL SARVAM CALL
+      await callSarvamTTS(chunks[i])
     }
 
     return res.json({
@@ -52,10 +118,18 @@ app.post("/process-chapter", async (req, res) => {
     })
 
   } catch (error) {
-    console.error("Processing error:", error)
-    return res.status(500).json({ error: "Worker crashed" })
+    console.error("Processing error:", error.message)
+
+    return res.status(500).json({
+      error: "Processing failed",
+      details: error.message
+    })
   }
 })
+
+// ---------------------------
+// SERVER START
+// ---------------------------
 
 const PORT = process.env.PORT || 3000
 
